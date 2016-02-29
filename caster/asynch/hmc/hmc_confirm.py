@@ -12,14 +12,14 @@ finally:
     from caster.asynch.hmc.homunculus import Homunculus
 
 
-class Homunculus_Confirm(Homunculus):
+class HomunculusConfirm(Homunculus):
     
     def __init__(self, params):
         Homunculus.__init__(self, params[0])
         self.title(settings.HOMUNCULUS_VERSION + settings.HMC_TITLE_CONFIRM)
         
         self.geometry("320x50+" + str(int(self.winfo_screenwidth() / 2 - 160)) + "+" + str(int(self.winfo_screenheight() / 2 - 25)))
-        Label(self, text="Please confirm: "+" ".join(params[1].split("_")), name="i").pack() 
+        Label(self, text="Please confirm: "+" ".join(params[1].split(settings.HMC_SEPARATOR)), name="i").pack() 
         Label(self, text="(say \"confirm\" or \"cancel\")", name="i2").pack()       
     
     def xmlrpc_get_message(self):
@@ -35,6 +35,6 @@ class Homunculus_Confirm(Homunculus):
     def xmlrpc_do_action(self, action, details=None):
         if isinstance(action, bool):
             self.completed = True
-            self.value = 1 if action else 2 # 1 is True, 2 is False
+            '''1 is True, 2 is False'''
+            self.value = 1 if action else 2
 
-#app=Homunculus_Confirm([settings.HOMUNCULUS_VERSION + settings.HMC_TITLE_CONFIRM, "nothing"])

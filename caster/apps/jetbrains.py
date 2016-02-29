@@ -1,7 +1,11 @@
 from dragonfly import (Grammar, AppContext, MappingRule,
                        Dictation, IntegerRef, Key)
+
+from caster.lib import settings
+from caster.lib.dfplus.additions import IntegerRefST
 from caster.lib.dfplus.state.short import R
- 
+
+
 class CommandRule(MappingRule):
 
     mapping = {
@@ -18,7 +22,7 @@ class CommandRule(MappingRule):
         "build":                    R(Key("c-f9"), rdescript="JetBrains: Build"),
         "build and run":            R(Key("s-f10"), rdescript="JetBrains: Build And Run"),
         "next tab":                 R(Key("a-right"), rdescript="JetBrains: Next Tab"),
-        "previous tab":             R(Key("a-left"), rdescript="JetBrains: Previous Tab"),
+        "prior tab":                R(Key("a-left"), rdescript="JetBrains: Previous Tab"),
         
         "comment line":             R(Key("c-slash"), rdescript="JetBrains: Comment Line"), 
         "uncomment line":           R(Key("cs-slash"), rdescript="JetBrains: Uncomment Line"), 
@@ -26,11 +30,12 @@ class CommandRule(MappingRule):
         "select ex down":           R(Key("cs-w"), rdescript="JetBrains: entitled command"),
         "search everywhere":        R(Key("shift, shift"), rdescript="JetBrains: Search Everywhere"),
         "find in current":          R(Key("cs-f"), rdescript="JetBrains: Find In Current"),
+        "go to line":               R(Key("c-g"), rdescript="JetBrains: Go To Line"), 
         }
     extras = [
               Dictation("text"),
               Dictation("mim"),
-              IntegerRef("n", 1, 1000),
+              IntegerRefST("n", 1, 1000),
               
              ]
     defaults = {"n": 1, "mim":""}
@@ -42,10 +47,6 @@ context = AppContext(executable="idea", title="IntelliJ") \
           | AppContext(executable="studio64") \
           | AppContext(executable="pycharm")
 grammar = Grammar("IntelliJ + Android Studio + PyCharm", context=context)
-grammar.add_rule(CommandRule())
-grammar.load()
-
-def unload():
-    global grammar
-    if grammar: grammar.unload()
-    grammar = None
+grammar.add_rule(CommandRule(name="jet brains"))
+if settings.SETTINGS["apps"]["jetbrains"]:
+    grammar.load()

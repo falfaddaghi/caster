@@ -1,9 +1,12 @@
 from dragonfly import (Grammar, AppContext, MappingRule,
                        Dictation, IntegerRef,
                        Key)
+
+from caster.lib import settings
+from caster.lib.dfplus.additions import IntegerRefST
 from caster.lib.dfplus.state.short import R
 
-# next tab
+
 class CommandRule(MappingRule):
 
     mapping = {
@@ -50,7 +53,7 @@ class CommandRule(MappingRule):
     extras = [
               Dictation("text"),
               Dictation("mim"),
-              IntegerRef("n", 1, 1000),
+              IntegerRefST("n", 1, 1000),
               
              ]
     defaults = {"n": 1, "mim":""}
@@ -59,10 +62,6 @@ class CommandRule(MappingRule):
 
 context = AppContext(executable="emacs", title="emacs")
 grammar = Grammar("emacs", context=context)
-grammar.add_rule(CommandRule())
-grammar.load()
-
-def unload():
-    global grammar
-    if grammar: grammar.unload()
-    grammar = None
+grammar.add_rule(CommandRule(name="emacs"))
+if settings.SETTINGS["apps"]["emacs"]:
+    grammar.load()

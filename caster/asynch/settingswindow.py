@@ -5,7 +5,7 @@ import threading
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 
 
-from wx import Notebook, NB_MULTILINE, Menu, ID_SAVE, ID_EXIT, EVT_MENU, MenuBar, \
+from wx import Notebook, NB_MULTILINE, Menu, ID_EXIT, EVT_MENU, MenuBar, \
     BoxSizer, VERTICAL, HORIZONTAL, StaticText, RIGHT, EXPAND, LEFT, TOP, \
     TextCtrl, Panel, App, Frame, CheckBox, EVT_CLOSE
 
@@ -33,7 +33,7 @@ class SettingsFrame(Frame):
 
     def __init__(self, parent, title):
         Frame.__init__(self, parent, title=title, size=(500,400))
-        self.setup_XMLRPC_server()
+        self.setup_xmlrpc_server()
         self.completed = False
         
         # Create the notebook 
@@ -71,7 +71,7 @@ class SettingsFrame(Frame):
         d = {}
         
         children = None
-        if t == None: children = self.fields
+        if t is None: children = self.fields
         else: children = t.children
         
         for field in children:
@@ -91,10 +91,10 @@ class SettingsFrame(Frame):
         
         return d
         
-    def setup_XMLRPC_server(self): 
+    def setup_xmlrpc_server(self): 
         self.server_quit = 0
         comm = Communicator()
-        self.server = SimpleXMLRPCServer(("127.0.0.1", comm.com_registry["hmc"]), allow_none=True)
+        self.server = SimpleXMLRPCServer((Communicator.LOCALHOST, comm.com_registry["hmc"]), allow_none=True)
         self.server.register_function(self.xmlrpc_get_message, "get_message")
         self.server.register_function(self.xmlrpc_complete, "complete")
         self.server.register_function(self.xmlrpc_kill, "kill")
@@ -106,7 +106,6 @@ class SettingsFrame(Frame):
         
     def xmlrpc_get_message(self):
         if self.completed:
-#                 self.completed = False
             Timer(1, self.xmlrpc_kill).start()
             return self.tree_to_dictionary()
         else:

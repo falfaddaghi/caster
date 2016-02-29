@@ -5,7 +5,10 @@ Created on May 30, 2015
 '''
 from dragonfly import Text, Pause, ActionBase
 
+from caster.lib import control
 from caster.lib.dfplus.hint import hintnode
+from caster.lib.dfplus.hint.hintnode import NodeRule
+from caster.lib.dfplus.state.actions2 import NullAction
 
 
 H = hintnode.HintNode
@@ -16,7 +19,7 @@ _style = H("style",Text("-style: "), [H("none",Text("none")),H("hidden",Text("hi
                                          H("inset",Text("inset")),H("outset",Text("outset")),      
                                         ])
 
-def getCSSNode():
+def get_css_node():
     H = hintnode.HintNode
     css_sections = []
     css_sections.append(_get_background())
@@ -44,7 +47,7 @@ def _get_speech():
               H("medium",Text("medium")),H("high",Text("high")),
               H("extra high", Text("x-high")),H("inherit",Text("inherit"))
               ]
-    return H("speech",Pause("20"), [
+    return H("speech",NullAction(), [
             H("cue",Text("cue"), [
                       H("before", Text("-before: "), _volume),
                       H("after", Text("-after: "), _volume)
@@ -251,7 +254,7 @@ def _get_box_model():# display can be optimized by doing more nesting, this whol
                  H("auto",Text("auto")),H("no display", Text("no-display")),
                  H("no content", Text("no-content")),
                  ]
-    return H("box model", Pause("10"), [
+    return H("box model", NullAction(), [
                   H("clear", Text("clear: "), [
                                 H("left",Text("left")), 
                                 H("right",Text("right")), 
@@ -498,8 +501,7 @@ def _get_background():
 
 
 
-
-
+control.nexus().merger.add_selfmodrule(NodeRule(get_css_node(), control.nexus().intermediary))
 
     
     

@@ -14,6 +14,8 @@ import win32api
 
 import Tkinter as tk
 
+from dragonfly import monitors
+
 try: # Style C -- may be imported into Caster, or externally
     BASE_PATH = os.path.realpath(__file__).split("\\caster")[0].replace("\\", "/")
     if BASE_PATH not in sys.path:
@@ -37,7 +39,7 @@ def wait_for_death(title, timeout=5):
         t += inc
         time.sleep(inc)
     if t >= timeout:
-        utilities.report("wait_for_death()" + " timed out (" + title + ")")
+        print("wait_for_death()" + " timed out (" + title + ")")
 
 class Dimensions:
     def __init__(self, w, h, x, y):
@@ -66,7 +68,7 @@ class TkTransparent(tk.Tk):
 
     def __init__(self, name, dimensions=None, canvas=True):
         tk.Tk.__init__(self, baseName="")
-        self.setup_XMLRPC_server()
+        self.setup_xmlrpc_server()
         if not dimensions:
             dimensions = self.get_dimensions_fullscreen()
         self.dimensions = dimensions
@@ -89,10 +91,10 @@ class TkTransparent(tk.Tk):
                 self.server._handle_request_noblock()
         Timer(1, start_server).start()
     
-    def setup_XMLRPC_server(self): 
+    def setup_xmlrpc_server(self): 
         self.server_quit = 0
         comm = Communicator()
-        self.server = SimpleXMLRPCServer(("127.0.0.1", comm.com_registry["grids"]), allow_none=True)
+        self.server = SimpleXMLRPCServer((Communicator.LOCALHOST, comm.com_registry["grids"]), allow_none=True)
         self.server.register_function(self.xmlrpc_kill, "kill")
     
     def pre_redraw(self):
@@ -120,8 +122,9 @@ class TkTransparent(tk.Tk):
         self.server_quit = 1
         self.destroy()
         os.kill(os.getpid(), signal.SIGTERM)
-        
-    def move_mouse(self, mx, my):
+    
+    @staticmethod
+    def move_mouse(mx, my):
         win32api.SetCursorPos((mx, my))
         
 
@@ -157,8 +160,8 @@ class RainbowGrid(TkTransparent):
         self.imgtk = ImageTk.PhotoImage(self.img)
         self._canvas.create_image(self.dimensions.width / 2, self.dimensions.height / 2, image=self.imgtk)
     
-    def setup_XMLRPC_server(self):
-        TkTransparent.setup_XMLRPC_server(self)
+    def setup_xmlrpc_server(self):
+        TkTransparent.setup_xmlrpc_server(self)
         self.server.register_function(self.xmlrpc_move_mouse, "move_mouse")
     
     def xmlrpc_move_mouse(self, pre, color, num):
@@ -200,36 +203,34 @@ class RainbowGrid(TkTransparent):
         font = ImageFont.truetype("arialbd.ttf", 15)
         draw = ImageDraw.Draw(self.img, 'RGBA')
         
-        for ly in range(0, ys_size):
-            if  ly + 1 < ys_size:
-                for lx in range(0, xs_size):
-                    if lx + 1 < xs_size:
-                        txt = str(box_number)
-                        tw, th = draw.textsize(txt, font)
-                        text_x = int((self.xs[lx] + self.xs[lx + 1] - tw) / 2) + 1
-                        text_y = int((self.ys[ly] + self.ys[ly + 1] - th) / 2) - 1
-                        draw.rectangle([self.xs[lx] + text_background_buffer,
-                                                       self.ys[ly] + text_background_buffer,
-                                                       self.xs[lx + 1] - text_background_buffer,
-                                                       self.ys[ly + 1] - text_background_buffer], fill=self.colors[colors_index], outline=False)
-                        
-                        draw.text((text_x + 1, text_y + 1), txt, (0, 0, 0), font=font)
-                        draw.text((text_x - 1, text_y + 1), txt, (0, 0, 0), font=font)
-                        draw.text((text_x + 1, text_y - 1), txt, (0, 0, 0), font=font)
-                        draw.text((text_x - 1, text_y - 1), txt, (0, 0, 0), font=font)
-                        draw.text((text_x, text_y), txt, (255, 255, 255), font=font)
-                        # index the position
-                        self.position_index[len(self.position_index) - 1].append((int((self.xs[lx] + self.xs[lx + 1]) / 2), int((self.ys[ly] + self.ys[ly + 1]) / 2)))
-                        
-                        # update for next iteration
-                        box_number += 1
-                        if box_number == 100:
-                            # next color
-                            box_number = 0
-                            colors_index += 1
-                            self.position_index.append([])
-                            if colors_index == len(self.colors):
-                                colors_index = 0
+        for ly in range(0, ys_size-1):
+            for lx in range(0, xs_size-1):
+                txt = str(box_number)
+                tw, th = draw.textsize(txt, font)
+                text_x = int((self.xs[lx] + self.xs[lx + 1] - tw) / 2) + 1
+                text_y = int((self.ys[ly] + self.ys[ly + 1] - th) / 2) - 1
+                draw.rectangle([self.xs[lx] + text_background_buffer,
+                                               self.ys[ly] + text_background_buffer,
+                                               self.xs[lx + 1] - text_background_buffer,
+                                               self.ys[ly + 1] - text_background_buffer], fill=self.colors[colors_index], outline=False)
+                
+                draw.text((text_x + 1, text_y + 1), txt, (0, 0, 0), font=font)
+                draw.text((text_x - 1, text_y + 1), txt, (0, 0, 0), font=font)
+                draw.text((text_x + 1, text_y - 1), txt, (0, 0, 0), font=font)
+                draw.text((text_x - 1, text_y - 1), txt, (0, 0, 0), font=font)
+                draw.text((text_x, text_y), txt, (255, 255, 255), font=font)
+                # index the position
+                self.position_index[len(self.position_index) - 1].append((int((self.xs[lx] + self.xs[lx + 1]) / 2), int((self.ys[ly] + self.ys[ly + 1]) / 2)))
+                
+                # update for next iteration
+                box_number += 1
+                if box_number == 100:
+                    # next color
+                    box_number = 0
+                    colors_index += 1
+                    colors_index %= len(self.colors) # cycle colors
+                    self.position_index.append([])
+                    
         del draw
 
 class DouglasGrid(TkTransparent):
@@ -241,13 +242,13 @@ class DouglasGrid(TkTransparent):
         self.draw()
         self.mainloop()
     
-    def setup_XMLRPC_server(self):
-        TkTransparent.setup_XMLRPC_server(self)
+    def setup_xmlrpc_server(self):
+        TkTransparent.setup_xmlrpc_server(self)
         self.server.register_function(self.xmlrpc_move_mouse, "move_mouse")
     
     def xmlrpc_move_mouse(self, x, y):
-        self.move_mouse(x * self.square_size + int(self.square_size / 2)+ self.dimensions.x, 
-                        y * self.square_size + int(self.square_size / 2)+ self.dimensions.y)
+        DouglasGrid.move_mouse(x * self.square_size + int(self.square_size / 2)+ self.dimensions.x, 
+                               y * self.square_size + int(self.square_size / 2)+ self.dimensions.y)
     
     def draw(self):
         self.pre_redraw()
@@ -326,22 +327,30 @@ class DouglasGrid(TkTransparent):
 
     
 def main(argv):
-    help_message = 'grids.py -m <mode>\nr\trainbow grid\nd\tdouglas grid'
+    help_message = 'Usage: grids.py -g <GRID_TYPE> [-m <MONITOR>]\n where <GRID_TYPE> is one of:\n  r\trainbow grid\n  d\tdouglas grid'
     try:
-        opts, args = getopt.getopt(argv, "hm:")
+        opts, args = getopt.getopt(argv, "hg:m:")
     except getopt.GetoptError:
-        print help_message
+        print(help_message)
         sys.exit(2)
+    g = None
+    m = 1
     for opt, arg in opts:
         if opt == '-h':
-            print help_message
+            print(help_message)
             sys.exit()
-        elif opt == '-m':
+        elif opt == '-g':
             if arg == "r":
-                rg = RainbowGrid()
+                g = RainbowGrid
             elif arg == 'd':
-                dg = DouglasGrid()  # grid_size=Dimensions(400, 300, 0, 0)  
-            
+                g = DouglasGrid
+        elif opt == '-m':
+            m = arg
+    if g is None:
+        raise ValueError("Grid mode not specified.")
+    r = monitors[int(m)-1].rectangle
+    grid_size = Dimensions(int(r.dx), int(r.dy), int(r.x), int(r.y))
+    g(grid_size=grid_size)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

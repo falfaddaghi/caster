@@ -1,23 +1,23 @@
 from dragonfly import (Grammar, AppContext, MappingRule,
-                       Dictation, IntegerRef,
-                       Key, Text, Repeat, Pause)
+                       Dictation, Key, Text, Repeat, Pause)
 from dragonfly.actions.action_mimic import Mimic
 
+from caster.lib import settings
+from caster.lib import control
+from caster.lib.dfplus.additions import IntegerRefST
+from caster.lib.dfplus.merge.mergerule import MergeRule
 from caster.lib.dfplus.state.short import R
 
 
-# next tab
 class CommandRule(MappingRule):
 
     mapping = {
                     
-            "previous (editor | tab) [<n>]":            R(Key("cs-f6"), rdescript="Eclipse: Previous Tab") * Repeat(extra="n"),  # these two must be set up in the eclipse preferences
-            "next (editor | tab) [<n>]":                R(Key("c-f6"), rdescript="Eclipse: Next Tab") * Repeat(extra="n"),
-            "close (editor | tab) [<n>]":               R(Key("c-w"), rdescript="Eclipse: Close Tab") * Repeat(extra="n"),
+            "prior tab [<n>]":                          R(Key("cs-f6"), rdescript="Eclipse: Previous Tab") * Repeat(extra="n"),  # these two must be set up in the eclipse preferences
+            "next tab [<n>]":                           R(Key("c-f6"), rdescript="Eclipse: Next Tab") * Repeat(extra="n"),
             "open resource":                            R(Key("cs-r"), rdescript="Eclipse: Open Resource"),
             "open type":                                R(Key("cs-t"), rdescript="Eclipse: Open Type"),
 
-            "[go to] line <n> [<mim>]":                 R(Key("c-l") + Pause("50") + Text("%(n)d") + Key("enter")+ Pause("50")+Mimic(extra="mim"), rdescript="Eclipse: Go To Line"),
             "jump to source":                           R(Key("f3"), rdescript="Eclipse: Jump To Source"),
             "editor select":                            R(Key("c-e"), rdescript="Eclipse: Editor Select"),
             
@@ -31,7 +31,7 @@ class CommandRule(MappingRule):
             # "terminate" changes to the settings for this hotkey: (when: in dialogs and windows)
             "terminate":                                R(Key("c-f2"), rdescript="Eclipse: Terminate Running Program"),
             
-            "search for this everywhere":               R(Key("ca-g"), rdescript="Eclipse: Search Project"),
+            "find everywhere":                          R(Key("ca-g"), rdescript="Eclipse: Search Project"),
             "refractor symbol":                         R(Key("sa-r"), rdescript="Eclipse: Re-Factor Symbol"),
             
             "symbol next [<n>]":                        R(Key("c-k"), rdescript="Eclipse: Symbol Next") * Repeat(extra="n"),
@@ -45,26 +45,32 @@ class CommandRule(MappingRule):
             
             "split view horizontal":                    R(Key("cs-underscore"), rdescript="Eclipse: Split View (H)"), 
             "split view vertical":                      R(Key("cs-lbrace"), rdescript="Eclipse: Split View (V)"),
-            # requires quick bookmarks plug-in:
-#             "set mark [<n>]":                           Key("a-%(n)d"),
-#             "go mark [<n>]":                            Key("as-%(n)d"),
         }
     extras = [
-              Dictation("text"),
-              Dictation("mim"),
-              IntegerRef("n", 1, 1000),
+            Dictation("text"),
+            Dictation("mim"),
+            IntegerRefST("n", 1, 1000),
               
              ]
     defaults = {"n": 1, "mim":""}
 
+class EclipseCCR(MergeRule):
+    pronunciation = "eclipse"
+    
+    mapping = {
+            "[go to] line <n>":                         R(Key("c-l") + Pause("50") + Text("%(n)d") + Key("enter")+ Pause("50")+
+                                                          Mimic(extra="mim"), rdescript="Eclipse: Go To Line"),
+        }
+    extras = [
+              Dictation("text"),
+              IntegerRefST("n", 1, 1000),
+             ]
+    defaults = {"n": 1}
 #---------------------------------------------------------------------------
 
 context = AppContext(executable="javaw", title="Eclipse") | AppContext(executable="eclipse", title="Eclipse") | AppContext(executable="AptanaStudio3")
 grammar = Grammar("Eclipse", context=context)
-grammar.add_rule(CommandRule())
-grammar.load()
-
-def unload():
-    global grammar
-    if grammar: grammar.unload()
-    grammar = None
+grammar.add_rule(CommandRule(name="eclipse"))
+if settings.SETTINGS["apps"]["eclipse"]:
+    grammar.load()
+    control.nexus().merger.add_app_rule(EclipseCCR(), context)

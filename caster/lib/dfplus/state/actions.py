@@ -6,12 +6,15 @@ Created on Jun 7, 2015
 from dragonfly import ActionBase
 
 from caster.lib import control
+from caster.lib.dfplus.state.stackitems import StackItemRegisteredAction, \
+    StackItemSeeker, StackItemAsynchronous
+_NEXUS = control.nexus()
 
 class RegisteredAction(ActionBase):
     def __init__(self, base, rspec="default", rdescript="unnamed command (RA)", 
                  rundo=None, show=True):
         ActionBase.__init__(self)
-        self.state = control.nexus().state
+        self._nexus = None
         self.base = base
         self.rspec = rspec
         self.rdescript = rdescript
@@ -19,8 +22,11 @@ class RegisteredAction(ActionBase):
         self.show = show
     
     def _execute(self, data=None):  # copies everything relevant and places it in the stack
-        self.state.add(self.state.generate_registered_action_stack_item(self, data))
-
+        self.nexus().state.add(StackItemRegisteredAction(self, data))
+    def set_nexus(self, nexus):
+        self._nexus = nexus
+    def nexus(self):
+        return self._nexus or _NEXUS
 
 
 
@@ -31,10 +37,9 @@ class ContextSeeker(RegisteredAction):
         self.forward = forward
         self.rspec = rspec
         self.rdescript = rdescript
-        self.state = control.nexus().state
         assert self.back != None or self.forward != None, "Cannot create ContextSeeker with no levels"
     def _execute(self, data=None):
-        self.state.add(self.state.generate_context_seeker_stack_item(self, data))
+        self.nexus().state.add(StackItemSeeker(self, data))
         
         
         
@@ -52,18 +57,33 @@ class AsynchronousAction(ContextSeeker):
     def __init__(self, forward, time_in_seconds=1, repetitions=0, 
                  rdescript="unnamed command (A)", blocking=True, finisher=None):
         ContextSeeker.__init__(self, None, forward)
-#         self.forward = forward
         self.repetitions = repetitions
         self.time_in_seconds = time_in_seconds
         self.rdescript = rdescript
         self.blocking = blocking
-        self.state = control.nexus().state
         self.base = finisher
         assert self.forward != None, "Cannot create AsynchronousAction with no termination commands"
         assert len(self.forward) == 1, "Cannot create AsynchronousAction with > or < one purpose"
     def _execute(self, data=None):
-        if data!=None:
+        if data is not None:
             if "time_in_seconds" in data: self.time_in_seconds=float(data["time_in_seconds"])
             if "repetitions" in data: self.time_in_seconds=int(data["repetitions"])
         
-        self.state.add(self.state.generate_continuer_stack_item(self, data))
+        self.nexus().state.add(StackItemAsynchronous(self, data))
+    @staticmethod
+    def hmc_complete(data_function, nexus):
+        ''' returns a function which applies the passed in function to 
+        the data returned by the pop-up window - the returned function
+        will be called by AsynchronousAction's timer repeatedly, 
+        to see if the data is available yet'''
+        def check_complete():
+            data = None
+            try:
+                data = nexus.comm.get_com("hmc").get_message()
+                if data is None:
+                    return False
+            except Exception:
+                return False
+            data_function(data)
+            return True
+        return check_complete

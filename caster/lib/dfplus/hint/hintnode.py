@@ -5,7 +5,7 @@ Created on May 27, 2015
 '''
 from dragonfly import MappingRule, ActionBase
 
- 
+from caster.lib.dfplus.merge.selfmodrule import SelfModifyingRule
 from caster.lib.dfplus.state.actions import ContextSeeker
 from caster.lib.dfplus.state.short import L, S
 
@@ -43,7 +43,7 @@ class HintNode:
         return results
     
     def get_spec_and_base_and_node(self):
-        return (self.spec, self.base, self)
+        return self.spec, self.base, self
             
     def fill_out_rule(self, mapping, extras, defaults, node_rule):
         specs = self.explode_children(self.explode_depth)
@@ -58,63 +58,62 @@ class HintNode:
         extras.extend(self.extras)
         defaults.update(self.defaults)
 
-class NodeRule(MappingRule):
+class NodeRule(SelfModifyingRule):
     master_node = None
     stat_msg = None
     
-    def set_grammar(self, grammar):
-        '''for when the grammar is not known in advance'''
-        self.grammar = grammar
-    
-    def __init__(self, node, grammar, stat_msg=None, is_reset=False):
-        # for self modification
-        self.node = node
+    def __init__(self, node, stat_msg=None, is_reset=False):
         first = False
-        if self.master_node == None:
-            self.master_node = self.node
-            first = True
-            self.post = ContextSeeker(forward=[L(S(["cancel"], self.reset_node, consume=False), 
+        if self.master_node is None:
+            self.master_node = node
+            self.stat_msg = stat_msg
+            self.post = ContextSeeker(forward=[L(S(["cancel"], lambda: self.reset_node(), consume=False), 
                                                  S([self.master_node.spec], lambda: None, consume=False))], 
                                       rspec=self.master_node.spec)
-        if self.stat_msg == None:
-            self.stat_msg = stat_msg        
+            first = True
+            SelfModifyingRule.__init__(self, self.master_node.spec, refresh=False)
         
+        self.refresh(node, first, is_reset)
+    
+    def get_name(self):
+        return self.master_node.spec
+    
+    def refresh(self, *args):
+        self.node = args[0]
+        first = args[1]
+        is_reset = args[2]
+            
         mapping = {}
         extras = []
         defaults = {}
         
-        # each child node gets turned into a mapping key/value
+        '''each child node gets turned into a mapping key/value'''
         for child in self.node.children:
             child.fill_out_rule(mapping, extras, defaults, self)
         if len(mapping)==0:
-            if self.stat_msg!=None and not first:
+            if self.stat_msg is not None and not first:
                 self.stat_msg.text("Node Reset")# status window messaging
             self.reset_node()
             for child in self.node.children:
                 child.fill_out_rule(mapping, extras, defaults, self)
         else:
-            if self.stat_msg!=None and not first and not is_reset:# status window messaging
+            if self.stat_msg is not None and not first and not is_reset:# status window messaging
                 self.stat_msg.hint("\n".join([x.get_spec_and_base_and_node()[0] for x in self.node.children]))
         
-        
-        MappingRule.__init__(self, "node_" + str(self.master_node.spec), mapping, extras, defaults)
-        self.grammar = grammar
+        self.extras = extras
+        self.defaults = defaults
+        self.reset(mapping)
         
     
     def change_node(self, node, reset=False):
-        self.grammar.unload()
-        NodeRule.__init__(self, node, self.grammar, None, reset)
-        self.grammar.load()
+        self.refresh(node, False, reset)
     
     def reset_node(self):
-        self.change_node(self.master_node, True)
+        if self.node is not self.master_node:
+            self.change_node(self.master_node, True)
     
     def _process_recognition(self, node, extras):
-        '''
-        There are two kinds of nodes being referred to in here: Dragonfly _processor_recognition nodes, 
-        and Caster hintnode.HintNode(s). "node" is the former, "self.node" is the latter.
-        '''
-        node=node[self.master_node.spec]
+        node = node[self.master_node.spec]
         node._action.execute(node._data)
         
     

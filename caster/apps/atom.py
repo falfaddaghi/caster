@@ -9,7 +9,10 @@ from dragonfly import (Grammar, AppContext, MappingRule,
                        Key, Text, Repeat, Pause)
 from dragonfly.actions.action_mimic import Mimic
 
+from caster.lib import settings
+from caster.lib.dfplus.additions import IntegerRefST
 from caster.lib.dfplus.state.short import R
+
 
 class CommandRule(MappingRule):
 
@@ -45,15 +48,12 @@ class CommandRule(MappingRule):
             "save":                                    R(Key("c-s"), rdescript="Atom: Save"),
             "save as":                                 R(Key("cs-s"), rdescript="Atom: Save As"),
             "save all":                                R(Key("cs-p") + Text("Save All") + Pause("4") + Key("enter"), rdescript="Atom: Save All"),
-            "close tab":                               R(Key("c-w"), rdescript="Atom: Close Tab"),
             "close pane":                              R(Key("cs-p") + Text("Pane Close") + Pause("4") + Key("enter"), rdescript="Atom: Close Pane"),
             "close pane others":                       R(Key("cs-p") + Text("Pane Close Other Items") + Pause("4") + Key("enter"), rdescript="Atom: Close Pane"),
             "close pane":                              R(Key("cs-p") + Text("Pane Close") + Pause("4") + Key("enter"), rdescript="Atom: Close Pane"),
             "close window":                            R(Key("cs-w"), rdescript="Atom: Close Window"),
         #Extra
     #Edit Menu
-            "undo [<n>]":                              R(Key("c-z"), rdescript="Atom: Undo") * Repeat(extra="n"),
-            "redo [<n>]":                              R(Key("c-y"), rdescript="Atom: Redo") * Repeat(extra="n"),
             "cut":                                     R(Key("s-delete"), rdescript="Atom: Cut"),
             "copy ":                                   R(Key("c-insert"), rdescript="Atom: Copy"),
             "paste [<n>]":                             R(Key("s-insert"), rdescript="Atom: Paste") * Repeat(extra="n"),
@@ -146,10 +146,6 @@ class CommandRule(MappingRule):
             "replacing in buffer":                     R(Key("ac-f"), rdescript="Atom: Replacing in Buffer"),
             "select next":                             R(Key("c-d"), rdescript="Atom: Select Next"),
             "find select all":                         R(Key("a-f3"), rdescript="Atom: Select All"),
-            "find [in] project":                       R(Key("cs-f3"), rdescript="Atom: Find in Project"),
-            "[toggle] find in project":                R(Key("cs-f"), rdescript="Atom: Toggle Find in Project"),
-            "find next":                               R(Key("f3"), rdescript="Atom: Find Next"),
-            "find previous":                           R(Key("s-f3"), rdescript="Atom: Find Previous"),
             "find replace next":                       R(Key("cs-p") + Text("Find and Replace: Replace Next") + Pause("4") + Key("enter"), rdescript="Atom: Replace Next"),
             "find replace all":                        R(Key("cs-p") + Text("Find and Replace: Replace All") + Pause("4") + Key("enter"), rdescript="Atom: Replace All"),
             "find buffer":                             R(Key("c-b"), rdescript="Atom: Find Buffer"),
@@ -215,7 +211,7 @@ class CommandRule(MappingRule):
             "convert tabs [to] spaces":                R(Key("cs-p") + Text("Whitespace: Convert Tabs to Spaces") + Pause("4") + Key("enter"), rdescript="Atom: Convert Tabs to Spaces"),
             "convert spaces [to] tabs":                R(Key("cs-p") + Text("Whitespace: Convert Spaces to Tabs") + Pause("4") + Key("enter"), rdescript="Atom: Convert Spaces to Tabs"),
         #Merge Conflicts Submenu
-            "git [detect] [merge] conflicts":          R(Key("cs-p") + Text("Merge Conflicts") + Pause("4") + Key("enter"),(""), rdescript="Atom: Detect"),
+            "git [detect] [merge] conflicts":          R(Key("cs-p") + Text("Merge Conflicts") + Pause("4") + Key("enter"), rdescript="Atom: Detect"),
 
 # ----Atom Optional Third-Party Packages and Dependencies-----------------------------------------------------------------------------
  #Install through command prompt, Atom install manager or a .bat file at http://tinyurl.com/Atom-Dependencies
@@ -317,8 +313,8 @@ class CommandRule(MappingRule):
     extras = [
             Dictation("text"),
             Dictation("mim"),
-            IntegerRef("n", 1, 10000),
-            IntegerRef("n2", 1, 9),
+            IntegerRefST("n", 1, 10000),
+            IntegerRefST("n2", 1, 9),
 
              ]
     defaults = {"n": 1, "mim":""}
@@ -327,10 +323,6 @@ class CommandRule(MappingRule):
 
 context = AppContext(executable="atom", title="Atom")
 grammar = Grammar("Atom", context=context)
-grammar.add_rule(CommandRule())
-grammar.load()
-
-def unload():
-    global grammar
-    if grammar: grammar.unload()
-    grammar = None
+grammar.add_rule(CommandRule(name="atom"))
+if settings.SETTINGS["apps"]["atom"]:
+    grammar.load()

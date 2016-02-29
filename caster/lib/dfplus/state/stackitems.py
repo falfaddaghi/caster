@@ -3,10 +3,9 @@ Created on Jun 7, 2015
 
 @author: dave
 '''
-from dragonfly import Function, Key, Mimic, Paste, Text, Pause, ActionBase
+from dragonfly import Pause, ActionBase
 
-from caster.lib import control, settings
-from caster.lib.dfplus.hint.hintnode import NodeAction
+from caster.lib import settings
 
 
 class StackItem:
@@ -32,6 +31,7 @@ class StackItemRegisteredAction(StackItem):
         self.rundo = registered_action.rundo
         self.show = registered_action.show
         self.preserved = []
+        self.nexus = registered_action.nexus()
     def execute(self):
         self.complete = True
         self.base.execute(self.dragonfly_data)
@@ -41,12 +41,16 @@ class StackItemRegisteredAction(StackItem):
         self.dragonfly_data = None
         self.base = None
     def preserve(self):# save spoken words
-        if self.dragonfly_data!=None:
+        if self.dragonfly_data is not None:
             self.preserved = [x[0] for x  in self.dragonfly_data["_node"].results]
+            return True
+        return False
+    def get_preserved(self):
+        return self.preserved
     def put_time_action(self):
         self.preserve()
         if settings.SETTINGS["miscellaneous"]["status_window_enabled"] and self.show:
-            control.nexus().intermediary.text(self.rdescript)
+            self.nexus.intermediary.text(self.rdescript)
 class StackItemSeeker(StackItemRegisteredAction):
     TYPE = "seeker"
     def __init__(self, seeker, data, type=TYPE):
@@ -57,31 +61,31 @@ class StackItemSeeker(StackItemRegisteredAction):
         self.eaten_rspec = {}
     
     @staticmethod
-    def copy_direction(cls):
+    def copy_direction(context_levels):
         result = None
-        if cls != None:
+        if context_levels is not None:
             result = []
-            for i in range(0, len(cls)):
-                cl = cls[i].copy()
-                cl.number(i)
-                result.append(cl)
+            for i in range(0, len(context_levels)):
+                context_level = context_levels[i].copy()
+                context_level.number(i)
+                result.append(context_level)
         return result
-    def executeCL(self, cl):# the return value is whether to terminate an AsynchronousAction
-        action = cl.result.f
-        if action==None:
+    def executeCL(self, context_level):# the return value is whether to terminate an AsynchronousAction
+        action = context_level.result.f
+        if action is None:
             return False
         elif isinstance(action, ActionBase):
-            action.execute(cl.dragonfly_data)
+            action.execute(context_level.dragonfly_data)
             return False
         else:
             # it's a function object, so get the parameters, if any
-            level = cl.index
-            fnparams = cl.result.parameters
-            if cl.result.use_spoken:
+            level = context_level.index
+            fnparams = context_level.result.parameters
+            if context_level.result.use_spoken:
                 fnparams = self.spoken[level]
-            if cl.result.use_rspec:
+            if context_level.result.use_rspec:
                 fnparams = self.eaten_rspec[level]
-            if fnparams == None:
+            if fnparams is None:
                 return action()
             else:
                 return action(fnparams)
@@ -93,45 +97,41 @@ class StackItemSeeker(StackItemRegisteredAction):
     def clean(self):
         # save whatever data you need here
         StackItemRegisteredAction.clean(self)
-        if self.back != None: 
-            for cl in self.back:
-                cl.dragonfly_data = None
-        if self.forward != None: 
-            for cl in self.forward:
-                cl.dragonfly_data = None
-    def fillCL(self, cl, cs):
-        cl.result = cs
-#         cl.result = cs.f
-#         cl.parameters = cs.parameters
-        cl.dragonfly_data = self.dragonfly_data
-#         cl.consume = cs.consume
-#         self.dragonfly_data = None # no need to be hanging onto this in more places than one
+        if self.back is not None: 
+            for context_level in self.back:
+                context_level.dragonfly_data = None
+        if self.forward is not None: 
+            for context_level in self.forward:
+                context_level.dragonfly_data = None
+    def fillCL(self, context_level, context_set):
+        context_level.result = context_set
+        context_level.dragonfly_data = self.dragonfly_data
     def execute(self, unused=None):
         self.complete = True
         c = []
-        if self.back != None:c += self.back
-        if self.forward != None:c += self.forward
-        for cl in c:
-            self.executeCL(cl)
+        if self.back is not None: c += self.back
+        if self.forward is not None: c += self.forward
+        for context_level in c:
+            self.executeCL(context_level)
         self.clean()
     def satisfy_level(self, level_index, is_back, stack_item):
         direction = self.back if is_back else self.forward
-        cl = direction[level_index]
-        if not cl.satisfied:
-            if stack_item != None:
-                for cs in cl.sets:
+        context_level = direction[level_index]
+        if not context_level.satisfied:
+            if stack_item is not None:
+                for context_set in context_level.sets:
                     # stack_item must have a spec
-                    if stack_item.rspec in cs.specTriggers:
-                        cl.satisfied = True
-                        self.fillCL(cl, cs)
+                    if stack_item.rspec in context_set.specTriggers:
+                        context_level.satisfied = True
+                        self.fillCL(context_level, context_set)
                         break
-            if not cl.satisfied:  # if still not satisfied, do default
-                cl.satisfied = True
-                self.fillCL(cl, cl.sets[0])
+            if not context_level.satisfied:  # if still not satisfied, do default
+                context_level.satisfied = True
+                self.fillCL(context_level, context_level.sets[0])
     def get_index_of_next_unsatisfied_level(self):
         for i in range(0, len(self.forward)):
-            cl = self.forward[i]
-            if not cl.satisfied:
+            context_level = self.forward[i]
+            if not context_level.satisfied:
                 return i
         return -1
 class StackItemAsynchronous(StackItemSeeker):
@@ -139,18 +139,19 @@ class StackItemAsynchronous(StackItemSeeker):
     def __init__(self, continuer, data, type=TYPE):
         StackItemSeeker.__init__(self, continuer, data, type)
         self.back = None
-        self.repetitions = continuer.repetitions
-        self.fillCL(self.forward[0], self.forward[0].sets[0])
         self.closure = None
+        self.fillCL(self.forward[0], self.forward[0].sets[0]) # set context set and dragonfly data
+        self.repetitions = continuer.repetitions
+        
         self.time_in_seconds = continuer.time_in_seconds
         self.blocking = continuer.blocking
     def satisfy_level(self, level_index, is_back, stack_item):  # level_index and is_back are unused here, but left in for compatibility
-        cl = self.forward[0]
-        if not cl.satisfied:
-            if stack_item != None:
-                cs = cl.sets[0]
-                if stack_item.rspec in cs.specTriggers:  # stack_item must have a spec
-                    cl.satisfied = True
+        context_level = self.forward[0]
+        if not context_level.satisfied:
+            if stack_item is not None:
+                context_set = context_level.sets[0]
+                if stack_item.rspec in context_set.specTriggers:  # stack_item must have a spec
+                    context_level.satisfied = True
     def get_triggers(self):
         return self.forward[0].sets[0].specTriggers
     def execute(self, success):  # this method should be what deactivates the continuer
@@ -160,33 +161,33 @@ class StackItemAsynchronous(StackItemSeeker):
         Waiting commands should only be run on success.
         '''
         self.complete = True
-        control.nexus().timer.remove_callback(self.closure)
-        if self.base!=None:# finisher
+        self.nexus.timer.remove_callback(self.closure)
+        if self.base is not None:# finisher
             self.base.execute()
         StackItemSeeker.clean(self)
         self.closure = None
         if success:
-            control.nexus().state.run_waiting_commands()  # @UndefinedVariable
+            self.nexus.state.run_waiting_commands()
         else:
-            control.nexus().state.unblock()  # @UndefinedVariable
+            self.nexus.state.unblock()
     def begin(self):
         '''here pass along a closure to the timer multiplexer'''
-        eCL = self.executeCL
-        cl = self.forward[0]
-        r = self.repetitions
-        c = {"value":0}  # count
-        e = self.execute
+        execute_context_levels = self.executeCL
+        context_level = self.forward[0]
+        repetitions = self.repetitions
+        count = {"value":0}  
+        execute = self.execute
         def closure():
-            terminate = eCL(cl)
-            if terminate:
-                e(terminate)
+            do_terminate = execute_context_levels(context_level)
+            if do_terminate:
+                execute(do_terminate)
                 
-            elif r != 0:  # if not run forever
-                c["value"] += 1
-                if c["value"] == r:
-                    e(False)
+            elif repetitions != 0:  # if not run forever
+                count["value"] += 1
+                if count["value"] == repetitions:
+                    execute(False)
         self.closure = closure
-        control.nexus().timer.add_callback(self.closure, self.time_in_seconds)
+        self.nexus.timer.add_callback(self.closure, self.time_in_seconds)
         self.closure()
 
 class StackItemConfirm(StackItemAsynchronous):
@@ -198,13 +199,13 @@ class StackItemConfirm(StackItemAsynchronous):
         self.hmc_response = 0
         
     def execute(self, success):
-        if self.hmc_response==1:
+        if self.mutable_integer["value"]==1:
             self.base.execute(self.dragonfly_data)
         self.base = None
         StackItemAsynchronous.execute(self, success)
-        
-    def receive_hmc_response(self, data):
-        self.hmc_response = data
+    
+    def shared_state(self, mutable_integer):
+        self.mutable_integer = mutable_integer
         
         
         

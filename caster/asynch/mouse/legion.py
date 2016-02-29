@@ -5,6 +5,7 @@ import re
 import sys, os
 import threading
 
+from dragonfly import monitors
 
 
 try: # Style C -- may be imported into Caster, or externally
@@ -13,7 +14,7 @@ try: # Style C -- may be imported into Caster, or externally
         sys.path.append(BASE_PATH)
 finally:
     from caster.asynch.mouse.grids import TkTransparent, Dimensions
-    from caster.lib import settings, utilities
+    from caster.lib import gdi, settings, utilities
 
 try:
     from PIL import ImageGrab
@@ -28,7 +29,7 @@ class Rectangle:
 
 class LegionGrid(TkTransparent):
     def __init__(self, grid_size=None, tirg=None, auto_quit=False):
-        self.setup_XMLRPC_server()
+        self.setup_xmlrpc_server()
         TkTransparent.__init__(self, settings.LEGION_TITLE, grid_size)
         self.attributes("-alpha", 0.7)
         
@@ -39,16 +40,16 @@ class LegionGrid(TkTransparent):
         
         self.mainloop()
     
-    def setup_XMLRPC_server(self): 
-        TkTransparent.setup_XMLRPC_server(self)
-        self.server.register_function(self.xmlrpc_retrieve_data_for_highlight, "retrieve_data_for_highlight")
+    def setup_xmlrpc_server(self): 
+        TkTransparent.setup_xmlrpc_server(self)
+        self.server.register_function(self.xmlrpc_retrieve_data_hlight, "retrieve_data_for_highlight")
         self.server.register_function(self.xmlrpc_go, "go")
     
     def xmlrpc_go(self, index):
         self.move_mouse(int(self.tirg_positions[index][0]+self.dimensions.x), 
                         int(self.tirg_positions[index][1]+self.dimensions.y))
     
-    def xmlrpc_retrieve_data_for_highlight(self, strindex):
+    def xmlrpc_retrieve_data_hlight(self, strindex):
         if strindex in self.tirg_positions:
             position_data = self.tirg_positions[strindex]
             return {"l": position_data[2]+self.dimensions.x, 
@@ -106,7 +107,7 @@ class LegionGrid(TkTransparent):
             self._canvas.create_text(center_x - 1, center_y - 1, text=label, font=font, fill=fill_outer)
             self._canvas.create_text(center_x, center_y, text=label, font=font, fill=fill_inner)
             
-            # rect.left, rect.right are now being saved below for the highlight function
+            '''rect.left, rect.right are now being saved below for the highlight function'''
             self.tirg_positions[label] = (center_x, center_y, rect.left, rect.right)
             rect_num += 1
 
@@ -143,8 +144,9 @@ class LegionScanner:
         return result
         
     def scan(self, bbox=None):
-        #bbox=(10,10,500,500)
-        img = ImageGrab.grab(bbox)
+        # ImageGrab.grab currently doesn't support multiple monitors.
+        # If PIL gets updated with multimon support, this can be switched back.
+        img = gdi.grab_screen(bbox) # ImageGrab.grab(bbox)
         result = self.tirg_scan(img)
         if result != self.last_signature:
             with self.lock:
@@ -156,34 +158,40 @@ class LegionScanner:
         with self.lock:
             if self.screen_has_changed:
                 self.screen_has_changed = False
-                return (self.last_signature, None)  # None should be replaced with rectangle scan results
+                return self.last_signature, None  # None should be replaced with rectangle scan results
             else:
                 return None
 
 
 def main(argv):
-    help_message = 'legion.py -t <tirg> -d <dimensions> -a <autoquit>'
+    help_message = 'legion.py -t <tirg> [-m <monitor>] [-d <dimensions>] [-a <autoquit>]'
     tirg = None
+    monitor = 1
     dimensions = None
     auto_quit = False
     try:
-        opts, args = getopt.getopt(argv, "ht:a:d:", ["tirg=", "dimensions=", "autoquit="])
+        opts, args = getopt.getopt(argv, "ht:a:d:m:", ["tirg=", "dimensions=", "autoquit="])
     except getopt.GetoptError:
-        print help_message
+        print(help_message)
         sys.exit(2)
     try:
         for opt, arg in opts:
             if opt == '-h':
-                print help_message
+                print(help_message)
                 sys.exit()
             elif opt in ("-t", "--tirg"):
                 tirg = arg
+            elif opt == '-m':
+                monitor = arg
             elif opt in ("-d", "--dimensions"):
                 # wxh+x+y
                 dimensions = Dimensions(*[int(n) for n in arg.split("_")])
             elif opt in ("-a", "--autoquit"):
                 auto_quit = arg in ("1", "t")    
         
+        if dimensions is None:
+            r = monitors[int(monitor)-1].rectangle
+            dimensions = Dimensions(int(r.dx), int(r.dy), int(r.x), int(r.y))
         lg = LegionGrid(grid_size=dimensions, tirg=tirg, auto_quit=auto_quit)
     except Exception:
         utilities.simple_log(True)

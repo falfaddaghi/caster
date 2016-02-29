@@ -1,44 +1,20 @@
-# Ignore work files
-w.py
-*tsp*
-configstar.txt
-flypoint_private.iss
-
 # Ignore junk
-bin/misc
 .idea/
 *.pyc
 *.json
-*.bak
+*.wav
 *.class
 test.py
-*.tmp
-unins000.*
-build/
-tcl/
-data/log.txt
-bin/data/monitorscans/
-bin/data/legion_signatures/
-bin/data/ccr/unified/config.txt
-bin/data/element.json
-bin/data/log.txt
-bin/data/settings.json
-_navigation.py
-configaliases.txt
 log.txt
+complexity_report*
+*.log
 
-# Ignore natlink files
-core/
-_vocola_main.py
+# Ignore Natlink
+/core/
 
-# Ignore anything with a potential licensing problem
-msvcp90.dll
-msvcr90.dll
-bin/homebrew/CustomGrid/
-bin/nircmd/
-bin/PSTools/
-bin/MultiMonitorTool/
-bin/media/
-*.wav
+# Ignore User Rules and Filters
+/caster/user
 
-
+# Ignore SonarQube
+.sonar
+sonar-project.properties

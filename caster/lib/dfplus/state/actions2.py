@@ -1,16 +1,70 @@
-import time
-
 from dragonfly import Function, Key
-import win32gui, win32con
+from dragonfly.actions.action_pause import Pause
+from dragonfly.actions.action_startapp import BringApp
+from dragonfly.windows.window import Window
 
 from caster.asynch.hmc import h_launch
-from caster.lib import settings, control, utilities
-from caster.lib.dfplus.monkeypatch import Window
-from caster.lib.dfplus.state.actions import AsynchronousAction, ContextSeeker
+from caster.lib import settings, utilities, navigation
+from caster.lib.dfplus.state.actions import AsynchronousAction, ContextSeeker, \
+    RegisteredAction
 from caster.lib.dfplus.state.short import L, S
+from caster.lib.dfplus.state.stackitems import StackItemConfirm, StackItemSeeker,\
+    StackItemAsynchronous
 
-'''CB's solution for focus window failure'''
-win32gui.SystemParametersInfo(win32con.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, 1)
+
+#win32gui.SystemParametersInfo(win32con.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, 1)
+class BoxAction(AsynchronousAction):
+    '''
+    Similar to AsynchronousAction, but the repeated action is always
+    checking on the Homunculus response.
+    '''
+    def __init__(self, receiver, rspec="default", rdescript="unnamed command (BA)", repetitions=60,
+                 box_type=settings.QTYPE_DEFAULT, box_settings={}, log_failure=False):
+        _ = {"tries": 0}
+        self._ = _ # signals to the stack to cease waiting, return True terminates
+        def check_for_response():
+            try:
+                _data = self.nexus().comm.get_com("hmc").get_message()
+            except Exception:
+                if log_failure: utilities.simple_log()
+                _["tries"]+=1
+                if _["tries"]>9: return True # try 10 times max if there's no Homonculus response
+                else: return False
+            if _data is None: return False
+            try:
+                _data.append(_["dragonfly_data"]) # pass dragonfly data into receiver function
+                _["dragonfly_data"] = None
+                receiver(_data)
+            except Exception:
+                if log_failure: utilities.simple_log()
+            return True
+            
+        AsynchronousAction.__init__(self, # cannot block, if it does, it'll block its own confirm command
+                                    [L(S(["cancel"], check_for_response, None))], 
+                                    1, repetitions, rdescript, False)
+        self.rspec = rspec
+        self.box_type = box_type
+        self.box_settings = box_settings # custom instructions for setting up the tk window ("Homunculus")
+        self.log_failure = log_failure
+    def _execute(self, data=None):
+        self._["tries"] = 0       # reset
+        self._["dragonfly_data"] = data
+        h_launch.launch(self.box_type, data = self.encode_box_settings())
+        self.nexus().state.add(StackItemAsynchronous(self, data))
+    
+    def encode_box_settings(self):
+        result=""
+        instructions_first = False
+        if self.box_type==settings.QTYPE_INSTRUCTIONS and "instructions" in self.box_settings:
+            result+=settings.HMC_SEPARATOR.join(self.box_settings["instructions"].split(" "))+"|"
+            instructions_first = True
+        for key in self.box_settings.keys():
+            if instructions_first and key=="instructions":
+                continue
+            result += settings.HMC_SEPARATOR.join(self.box_settings[key].split(" ")) + "|"
+        return result
+            
+        
 
 class ConfirmAction(AsynchronousAction):
     '''
@@ -21,32 +75,46 @@ class ConfirmAction(AsynchronousAction):
     0: no response yet
     1: True
     2: False
+    -
+    This is the only action which requires the nexus in the constructor;
+    the rest of them can use the setter. This is because on_complete
+    needs a nexus immediately.
     '''
-    def __init__(self, base, rspec="default", rdescript="unnamed command (RA)"):
-        mutable_integer = {"value": 0}
-        def check_response(): # signals to the stack to cease waiting, return True terminates
-            return mutable_integer["value"]!=0
-        self.mutable_integer = mutable_integer
+    def __init__(self, base, rspec="default", rdescript="unnamed command (CA)", instructions="instructions missing", nexus=None):
+        self.set_nexus(nexus)
+        on_complete = AsynchronousAction.hmc_complete(lambda data: receive_response(data), self.nexus())
         AsynchronousAction.__init__(self, 
-                                    [L(S(["cancel"], check_response, None))], 
+                                    [L(S(["cancel"], on_complete, None))], 
                                     1, 60, rdescript, False)# cannot block, if it does, it'll block its own confirm command
+        
         self.base = base
         self.rspec = rspec
-    def _execute(self, data=None):
-        confirm_stack_item = self.state.generate_confirm_stack_item(self, data)
-        self.mutable_integer["value"] = 0
-        mutable_integer = self.mutable_integer
-        def hmc_closure(data):
+        self.instructions = instructions
+        
+        
+        mutable_integer = {"value": 0}
+        def receive_response(data): # signals to the stack to cease waiting, return True terminates
             '''
             receives response from homunculus, uses it to
             stop the stack and tell the ConfirmAction how
             to execute
             '''
             mutable_integer["value"] = data["confirm"]
-            confirm_stack_item.receive_hmc_response(data["confirm"])
-                    
-        h_launch.launch(settings.QTYPE_CONFIRM, hmc_closure, "_".join(self.rdescript.split(" ")))
-        self.state.add(confirm_stack_item)
+        self.mutable_integer = mutable_integer
+        
+        
+        
+    def _execute(self, data=None):
+        '''the factory (ConfirmAction) sharing data with the objects 
+        it generates (StackItemConfirm) would be a problem if there 
+        could ever be more than one of these at a time, but there can't'''
+        self.mutable_integer["value"] = 0
+        
+        confirm_stack_item = StackItemConfirm(self, data)
+        confirm_stack_item.shared_state(self.mutable_integer)
+                            
+        h_launch.launch(settings.QTYPE_CONFIRM, data=settings.HMC_SEPARATOR.join(self.instructions.split(" ")))
+        self.nexus().state.add(confirm_stack_item)
 
 class FuzzyMatchAction(ContextSeeker):
     '''
@@ -59,9 +127,9 @@ class FuzzyMatchAction(ContextSeeker):
     default_1: speaking a next command other than a number or cancel activates the first choice in the list
         ; 
     '''
-    TEN = ["numb one", "numb two", "numb three", "numb four", "numb five", 
-       "numb six", "numb seven", "numb eight", "numb nine", "numb ten"]
-    def __init__(self, list_function, filter_function, selection_function, default_1=True, rspec="default", rdescript="unnamed command (FM)"):
+    TEN = ["numb "+x for x in navigation.numbers_list_1_to_9()+["ten"]]
+    def __init__(self, list_function, filter_function, selection_function, default_1=True, rspec="default", 
+                 rdescript="unnamed command (FM)", log_file_path=None):
         def get_choices(data):
             choices = list_function()
             if filter_function:
@@ -70,9 +138,9 @@ class FuzzyMatchAction(ContextSeeker):
                 choices.append("") # this is questionable
             return choices
         self.choice_generator = get_choices
-        
         mutable_list = {"value": None} # only generate the choices once, and show them between the action and the stack item
         self.mutable_list = mutable_list
+        self.filter_text = ""
         
         def execute_choice(spoken_words=[]):
             n = -1
@@ -84,9 +152,14 @@ class FuzzyMatchAction(ContextSeeker):
             if j in FuzzyMatchAction.TEN:
                 n = FuzzyMatchAction.TEN.index(j)
             if n == -1: n = 0
-            selection_function(mutable_list["value"][n])
+            choices = mutable_list["value"]
+            selection_function(choices[n])
+            if log_file_path and settings.SETTINGS["miscellaneous"]["enable_match_logging"]:
+                log_entry = [self.filter_text] + [choices[n]] + [s for s,i in zip(choices, range(len(choices))) if i != n]
+                with open(log_file_path, "a") as log_file:
+                    log_file.write(str(log_entry) + "\n")
         def cancel_message():
-            control.nexus().intermediary.text("Cancel ("+rdescript+")")
+            self.nexus().intermediary.text("Cancel ("+rdescript+")")
         forward = [L(S([""], execute_choice, consume=False),
                      S(["number"], execute_choice, use_spoken=True), 
                      S(["cancel", "clear"], cancel_message)
@@ -105,10 +178,15 @@ class FuzzyMatchAction(ContextSeeker):
         for i in range(0, 10):
             display_string += str(i+1)+" - "+choices[i]
             if i+1<10: display_string += "\n"
-        control.nexus().intermediary.hint(display_string)
+        self.nexus().intermediary.hint(display_string)
+        if data is not None and "text" in data:
+            self.filter_text = data["text"].format()
         self.mutable_list["value"] = choices
-        self.state.add(self.state.generate_context_seeker_stack_item(self, data))
+        self.nexus().state.add(StackItemSeeker(self, data))
 
+class NullAction(RegisteredAction):
+    def __init__(self, rspec="default", rdescript="unnamed command (RA)", show=False):
+        RegisteredAction.__init__(self, Pause("10"), rspec=rspec, rdescript=rdescript, rundo=None, show=show)
 
 class SuperFocusWindow(AsynchronousAction):
     '''
@@ -144,30 +222,23 @@ class SuperFocusWindow(AsynchronousAction):
                     found_match=executable in w.executable
                 if found_match:
                     try:
-                        # this is still broken
-                        win32gui.SetWindowPos(w.handle,win32con.HWND_NOTOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE + win32con.SWP_NOSIZE)  
-                        win32gui.SetWindowPos(w.handle,win32con.HWND_TOPMOST, 0, 0, 0, 0, win32con.SWP_NOMOVE + win32con.SWP_NOSIZE)  
-                        win32gui.SetWindowPos(w.handle,win32con.HWND_NOTOPMOST, 0, 0, 0, 0, win32con.SWP_SHOWWINDOW + win32con.SWP_NOMOVE + win32con.SWP_NOSIZE)
-                        Key("alt").execute()
-                        time.sleep(0.5)
-                        win32gui.SetForegroundWindow(w.handle)
-                        w.set_foreground()
+                        BringApp(w.executable).execute()
                     except Exception:
-                        utilities.report("Unable to set focus:\ntitle: "+w.title+"\nexe: "+w.executable)
+                        print("Unable to set focus:\ntitle: "+w.title+"\nexe: "+w.executable)
                     break
              
             # do not assume that it worked
             success = SuperFocusWindow.focus_was_success(title, executable)
             if not success:
                 if title!=None:
-                    print "title failure: ", title, w.title
+                    print("title failure: ", title, w.title)
                 if executable!=None:
-                    print "executable failure: ", executable, w.executable, executable in w.executable
+                    print("executable failure: ", executable, w.executable, executable in w.executable)
             return success
             
         forward=[L(S(["cancel"], attempt_focus))]
         AsynchronousAction.__init__(self, forward, time_in_seconds=time_in_seconds, repetitions=repetitions, 
                                     rdescript=rdescript, blocking=blocking, 
-                                    finisher=Function(control.nexus().intermediary.text, message="SuperFocus Complete")+Key("escape"))
+                                    finisher=Function(lambda message: self.nexus().intermediary.text(message), message="SuperFocus Complete")+Key("escape"))
         self.show = False
         

@@ -6,9 +6,8 @@ import re
 from subprocess import Popen
 import traceback
 
+from dragonfly.windows.window import Window
 import win32gui, win32ui
-
-from caster.lib.dfplus.monkeypatch import Window
 
 
 try: # Style C -- may be imported into Caster, or externally
@@ -29,12 +28,11 @@ def window_exists(classname, windowname):
     else:
         return True
 
-def get_active_window_title(p=None):
-    pid=win32gui.GetForegroundWindow() if p==None else p
-    return unicode(win32gui.GetWindowText(pid), errors='ignore')
+def get_active_window_title(pid=None):
+    _pid=win32gui.GetForegroundWindow() if pid is None else pid
+    return unicode(win32gui.GetWindowText(_pid), errors='ignore')
 
 def get_active_window_path():
-    #return natlink.getCurrentModule()[0]
     return Window.get_foreground().executable
 
 def get_window_by_title(title):
@@ -90,9 +88,9 @@ def list_to_string(l):
             
 def simple_log(to_file=False):
     msg = list_to_string(sys.exc_info())
-    print msg
+    print(msg)
     for tb in traceback.format_tb(sys.exc_info()[2]):
-        print tb
+        print(tb)
     if to_file:
         f = open(settings.SETTINGS["paths"]["LOG_PATH"], 'a') 
         f.write(msg + "\n")
@@ -100,37 +98,35 @@ def simple_log(to_file=False):
 
 
 
-
-def report(message, speak=False, console=True, log=False):
-    if console:
-        print message
-    if speak:
-        dragonfly_speak(message)
-    if log:
-        settings.report_to_file(message)
-
 def availability_message(feature, dependency):
-    report(feature + " feature not available without " + dependency)
-
-def dragonfly_speak(message):
-    '''import dragonfly
-    dragonfly.get_engine().speak(message)'''
+    print(feature + " feature not available without " + dependency)
 
 # end stuff that was moved
 def remote_debug(who_called_it=None):
     import pydevd;  # @UnresolvedImport
-    if who_called_it == None:
+    if who_called_it is None:
         who_called_it = "An unidentified process"
     try:
         pydevd.settrace()
     except Exception:
-        print "ERROR: " + who_called_it + " called utilities.remote_debug() but the debug server wasn't running."
+        print("ERROR: " + who_called_it + " called utilities.remote_debug() but the debug server wasn't running.")
     
 
+def launch_status():
+    if not window_exists(None, settings.STATUS_WINDOW_TITLE):
+        Popen(["pythonw", settings.SETTINGS["paths"]["STATUS_WINDOW_PATH"]])
 
-
-def reboot():
-    print [settings.SETTINGS["paths"]["REBOOT_PATH"], "\""+settings.SETTINGS["paths"]["ENGINE_PATH"]+"\""]
-    Popen([settings.SETTINGS["paths"]["REBOOT_PATH"], settings.SETTINGS["paths"]["ENGINE_PATH"]])
+def reboot(wsr=False):
+    popen_parameters = []
+    if wsr:
+        popen_parameters.append(settings.SETTINGS["paths"]["REBOOT_PATH_WSR"])
+        popen_parameters.append(settings.SETTINGS["paths"]["WSR_PATH"])
+        #caster path inserted too if there's a way to wake up WSR
+    else:
+        popen_parameters.append(settings.SETTINGS["paths"]["REBOOT_PATH"])
+        popen_parameters.append(settings.SETTINGS["paths"]["ENGINE_PATH"])
+        
+    print(popen_parameters)
+    Popen(popen_parameters)
 
 

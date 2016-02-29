@@ -1,14 +1,16 @@
 import winsound
 
-from dragonfly import (Function, Text, Grammar, BringApp, WaitWindow, Key,
-                       IntegerRef, Dictation, Mimic, MappingRule)
+from dragonfly import (Function, Grammar, Dictation, MappingRule)
 
-from caster.lib import control, settings, utilities
+from caster.lib import settings, utilities
+from caster.lib import control
 from caster.lib.dfplus.state.short import R
-
+from caster.lib.dfplus.additions import IntegerRefST
+_NEXUS = control.nexus()
 
 class Dispel:  # this needs an entry in the settings file, needs to retain information when Dragon is reset
-    def __init__(self):
+    def __init__(self, nexus):
+        self.nexus = nexus
         self.minute = 60
         self.hour = 3600
         #
@@ -25,15 +27,15 @@ class Dispel:  # this needs an entry in the settings file, needs to retain infor
     def start(self):
         self.reset()
         self.send_message("T: " + str(self.remaining) + " m")
-        control.nexus().timer.add_callback(self.tick, self.minute)
+        self.nexus.timer.add_callback(self.tick, self.minute)
     def resume(self):
         self.send_message("T: " + str(self.remaining) + " m")
-        control.nexus().timer.add_callback(self.tick, self.minute)
+        self.nexus.timer.add_callback(self.tick, self.minute)
     def stop(self):
         self.active = False
         self.save_settings()
         self.send_message("Dispel: Terminate")
-        control.nexus().timer.remove_callback(self.tick)
+        self.nexus.timer.remove_callback(self.tick)
     
     def save_settings(self):
         self.settings["remaining"] = self.remaining
@@ -63,11 +65,11 @@ class Dispel:  # this needs an entry in the settings file, needs to retain infor
     
     def send_message(self, msg):
         if settings.SETTINGS["miscellaneous"]["status_window_enabled"]:
-            control.nexus().intermediary.text(msg)
+            self.nexus.intermediary.text(msg)
         else:
-            utilities.report(msg)
+            print(msg)
 
-ALARM = Dispel()
+ALARM = Dispel(_NEXUS)
 
 class MainRule(MappingRule):
     mapping = {
@@ -79,8 +81,8 @@ class MainRule(MappingRule):
     "reset dispel":                 R(Function(ALARM.reset), rdescript="Reset Ergonomic Alarm"),
     }
     extras = [
-              IntegerRef("n", 1, 500),
-              IntegerRef("n2", 1, 500),
+              IntegerRefST("n", 1, 500),
+              IntegerRefST("n2", 1, 500),
               Dictation("text"),
              ]
     defaults = {"n": 1, "n2": 1,

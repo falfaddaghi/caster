@@ -18,7 +18,7 @@ finally:
 class Homunculus(tk.Tk):
     def __init__(self, htype, data=None):
         tk.Tk.__init__(self, baseName="")
-        self.setup_XMLRPC_server()
+        self.setup_xmlrpc_server()
         self.htype = htype
         self.completed = False
         self.max_after_completed=10
@@ -34,9 +34,10 @@ class Homunculus(tk.Tk):
             Label(self, text="Enter response then say 'complete'", name="pathlabel").pack()
             self.ext_box = Text(self, name="ext_box")
             self.ext_box.pack(side=tk.LEFT)
+            self.data=[0, 0]
         elif self.htype == settings.QTYPE_INSTRUCTIONS:
             self.data=data.split("|")
-            Label(self, text=" ".join(self.data[0].split("_")), name="pathlabel").pack()
+            Label(self, text=" ".join(self.data[0].split(settings.HMC_SEPARATOR)), name="pathlabel").pack()
             self.ext_box = Text(self, name="ext_box")
             self.ext_box.pack(side=tk.LEFT)
         
@@ -53,10 +54,10 @@ class Homunculus(tk.Tk):
     def start_tk(self):
         self.mainloop()
     
-    def setup_XMLRPC_server(self): 
+    def setup_xmlrpc_server(self): 
         self.server_quit = 0
         comm = Communicator()
-        self.server = SimpleXMLRPCServer(("127.0.0.1", comm.com_registry["hmc"]), allow_none=True)
+        self.server = SimpleXMLRPCServer((Communicator.LOCALHOST, comm.com_registry["hmc"]), allow_none=True)
         self.server.register_function(self.xmlrpc_do_action, "do_action")
         self.server.register_function(self.xmlrpc_complete, "complete")
         self.server.register_function(self.xmlrpc_get_message, "get_message")
@@ -76,7 +77,7 @@ class Homunculus(tk.Tk):
         '''override this for every new child class'''
         if self.completed:
             Timer(1, self.xmlrpc_kill).start()
-            return [self.ext_box.get("1.0", tk.END), self.data[1]]
+            return [self.ext_box.get("1.0", tk.END), self.data]
         else:
             return None
     

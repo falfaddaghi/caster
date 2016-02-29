@@ -5,17 +5,19 @@ Created on Jun 7, 2015
 '''
 import Queue
 
+from caster.lib import settings
 from caster.lib.dfplus.state.stackitems import StackItemRegisteredAction, \
     StackItemSeeker, StackItemAsynchronous, StackItemConfirm
 
 
 class CasterState:
-    def __init__(self):
+    def __init__(self, nexus):
         self.stack = ContextStack(self)
         self.blocker = None
         self.waiting = Queue.Queue()
+        self.nexus = nexus
     def add(self, stack_item):
-        if self.blocker == None:
+        if self.blocker is None:
             ''' important to block before adding because the add might unblock '''
             if ContextStack.is_asynchronous(stack_item.type) and stack_item.blocking:
                 self.blocker = stack_item
@@ -38,17 +40,9 @@ class CasterState:
             if ContextStack.is_asynchronous(task.type):
                 self.blocker=task
                 break
-    def halt_asynchronous(self, success):
+    def terminate_asynchronous(self, success):
         ''' only for use with Dragonfly Function actions which can't return true or false but need spoken parameters'''
         self.blocker.execute(success)
-    def generate_registered_action_stack_item(self, raction, data):
-        return StackItemRegisteredAction(raction, data)
-    def generate_context_seeker_stack_item(self, seeker, data):
-        return StackItemSeeker(seeker, data)
-    def generate_continuer_stack_item(self, continuer, data):
-        return StackItemAsynchronous(continuer, data)
-    def generate_confirm_stack_item(self, confirm, data):
-        return StackItemConfirm(confirm, data)
 
 class ContextStack:
     def __init__(self, state):
@@ -57,11 +51,12 @@ class ContextStack:
     
     def add(self, stack_item):  # stack_item is an instance of stackItem 
         stack_item.preserve()
+        if settings.WSR:
+            self.state.nexus.history.on_recognition(stack_item.get_preserved())            
         
         ''' case: the new item is has backward seeking --
             -- satisfy levels, then move on to other logic'''
-        if stack_item.type == "seeker":
-            if stack_item.back != None:
+        if stack_item.type == StackItemSeeker.TYPE and stack_item.back is not None:
                 stack_size = len(self.list)
                 seekback_size = len(stack_item.back)
                 for i in range(0, seekback_size):

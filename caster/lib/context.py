@@ -1,89 +1,22 @@
-import re
 import time
 
 from dragonfly import *
 
-from caster.lib import utilities, control
-from caster.lib.dfplus import state
+from caster.lib import utilities, settings
+from caster.lib import control
 
-
-def get_filter():
-    from natlinkutils import GrammarBase
-    class Filter(GrammarBase):
-    
-        # this spec will catch everything
-        gramSpec = """
-            <start> exported = {emptyList};
-        """
-    
-        def initialize(self):
-            self.load(self.gramSpec, allResults=1)
-            self.activateAll()
-    
-        def gotResultsObject(self, recogType, resObj):
-            for x in range(0, 100):
-                try:
-                    possible_interpretation = resObj.getWords(x)
-                    # do whatever sort of filtering you want here
-                except Exception:
-                    break
-    return Filter()
-
-def navigate_to_character(direction3, target):
-    # to do: possibly speed up the keypresses by figuring out how many lines up or down to go first
-    try:
-        left_or_right = str(direction3)
-        look_left = left_or_right == "left"
-        is_character = False
-        for s in target.split("~"):
-            if s in ".,()[]{}<>":
-                is_character=True
-                break
-        
-        # make sure nothing is highlighted to boot
-        Key("right, left" if look_left else "left, right").execute()
-        if look_left:
-            Key("cs-left").execute()
-        else:
-            Key("cs-right").execute()
-#         max_highlights = 100
-        index = -1
-#         last_copy_was_successful = True
-        context = None
-        tries=0
-        while context==None:
-            tries+=1
-            results = read_selected_without_altering_clipboard()
-            error_code = results[0]
-            if error_code==0:
-                context = results[1]
-                break
-            if tries>5:
-                return False
-        
-        # if we got to this point, we have a copy result, 
-        index = find_index_in_context(target, context, look_left)
-        
-        # highlight only the target
-        if index != -1:
-            Key("left" if look_left else "right").execute()
-            nt = index if look_left else len(context) - index - 1  # number of times to press left or right before the highlight
-            if nt != 0:
-                Key("right/5:" + str(nt) if look_left else "left/5:" + str(nt)).execute()
-            if is_character:
-                Key("s-right" if look_left else "s-left").execute()
-            else:
-                Key("cs-right" if look_left else "cs-left").execute()
+def _target_is_character(target):
+    '''determines if the target is a single character'''
+    if len(target) == 1:
+        return True
+    '''if the character is in the character group:'''
+    for s in target.split("~"):
+        if s in ".,()[]{}<>":
             return True
-        else:
-            # reset cursor
-            Key("left" if look_left else "right").execute()
-            return False
-            
-    except Exception:
-        utilities.simple_log(False)
+    return False
 
-def find_index_in_context(target, context, look_left):
+def _find_index_in_context(target, context, look_left):
+    '''attempts to find index of target in clipboard content'''
     tlist = target.split("~")
     index = -1
     if look_left:
@@ -102,13 +35,67 @@ def find_index_in_context(target, context, look_left):
         return -1
     return index
 
+def navigate_to_character(direction3, target, fill=False):
+    try:
+        look_left = str(direction3) == "left"
+        
+        # make sure nothing is highlighted to boot
+        if not fill:# (except when doing "fill" -- if at end of line, there is no space for this )
+            Key("right, left" if look_left else "left, right").execute()
+        if look_left:
+            Key("cs-left").execute()
+        else:
+            Key("cs-right").execute()
+        
+        context = None
+        tries = 0
+        while context is None:
+            tries+=1
+            results = read_selected_without_altering_clipboard()
+            error_code = results[0]
+            if error_code==0:
+                context = results[1]
+                break
+            if tries > 5:
+                return False
+        
+        # if we got to this point, we have a copy result
+        index = _find_index_in_context(target, context, look_left)
+        
+        
+        if index != -1:# target found
+            '''move the cursor to the left of the target if looking left, 
+            to the right of the target if looking right:'''
+            Key("left" if look_left else "right").execute()
+            '''number of times to press left or right before the highlight
+            (the target may be a part of a fully highlighted word): '''
+            nt = index if look_left else len(context) - index - 1
+            if nt != 0:
+                Key("right/5:" + str(nt) if look_left else "left/5:" + str(nt)).execute()
+            
+            '''highlight only the target'''
+            if _target_is_character(target):
+                Key("s-right" if look_left else "s-left").execute()
+            else:
+                Key("cs-right" if look_left else "cs-left").execute()
+            return True
+        else:
+            # reset cursor
+            Key("left" if look_left else "right").execute()
+            return False
+            
+    except Exception:
+        utilities.simple_log()
+
+
+
 def read_selected_without_altering_clipboard(same_is_okay=False):
     '''Returns a tuple:
     (0, "text from system") - indicates success
     (1, None) - indicates no change
-    (2, None) - indicates clipboard error, should not advance cursor before trying again
+    (2, None) - indicates clipboard error
     '''
-    time.sleep(0.05)  # time for previous keypress to execute
+    time.sleep(settings.SETTINGS["miscellaneous"]["keypress_wait"]/1000.)  # time for previous keypress to execute
     cb = Clipboard(from_system=True)
     temporary = None
     prior_content = None
@@ -118,24 +105,23 @@ def read_selected_without_altering_clipboard(same_is_okay=False):
         Clipboard.set_system_text("")
     
         Key("c-c").execute()
-        time.sleep(0.05)  # time for keypress to execute
+        time.sleep(settings.SETTINGS["miscellaneous"]["keypress_wait"]/1000.)  # time for keypress to execute
         temporary = Clipboard.get_system_text()
         cb.copy_to_system()
 
         
     except Exception:
         utilities.simple_log(False)
-        return (2, None)
-    
+        return 2, None
     if prior_content == temporary and not same_is_okay:
-        return (1, None)
-    return (0, temporary)
+        return 1, None
+    return 0, temporary
 
 
-def fill_within_line(target):
-    result = navigate_to_character("left", str(target))
+def fill_within_line(target, nexus):
+    result = navigate_to_character("left", str(target), True)
     if result:
-        control.nexus().state.halt_asynchronous(True)  # @UndefinedVariable
+        nexus.state.terminate_asynchronous(True)  
     return result
         
 def nav(parameters):

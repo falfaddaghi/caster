@@ -3,19 +3,20 @@
 # (c) Copyright 2008 by Christo Butcher
 # Licensed under the LGPL, see <http://www.gnu.org/licenses/>
 #
-
 """
 Command-module for MSVC
 
 """
-
-
 #---------------------------------------------------------------------------
 
 from dragonfly import (Grammar, AppContext, MappingRule,
                        Dictation, IntegerRef,
                        Key, Text, Repeat, Pause)
+
+from caster.lib import settings
+from caster.lib.dfplus.additions import IntegerRefST
 from caster.lib.dfplus.state.short import R
+
 
 class CommandRule(MappingRule):
 
@@ -28,7 +29,6 @@ class CommandRule(MappingRule):
             "resolve":                                  R(Key("c-dot"), rdescript="MSVC: Resolve"), 
             "jump to source":                           R(Key("f12"), rdescript="MSVC: Jump To Source"), 
             "snippet":                                  R(Key("tab"), rdescript="MSVC: Snippet"), 
-            "search for this everywhere":               R(Key("cs-f"), rdescript="MSVC: Search Everywhere"), 
              
             "step over [<n>]":                          R(Key("f10/50") * Repeat(extra="n"), rdescript="MSVC: Step Over"),
             "step into":                                R(Key("f11"), rdescript="MSVC: Step Into"),
@@ -46,10 +46,12 @@ class CommandRule(MappingRule):
             "format code":                              R(Key("cs-f"), rdescript="MSVC: Format Code"),
             "(do imports | import all)":                R(Key("cs-o"), rdescript="MSVC: Do Imports"),
             "comment line":                             R(Key("c-slash"), rdescript="MSVC: Comment Line"),
+            
+            "go to line":                               R(Key("c-g"), rdescript="MSVC: Go To Line"), 
         }
     extras = [
               Dictation("text"),
-              IntegerRef("n", 1, 1000),
+              IntegerRefST("n", 1, 1000),
               
              ]
     defaults = {"n": 1}
@@ -58,10 +60,6 @@ class CommandRule(MappingRule):
 
 context = AppContext(executable="WDExpress")
 grammar = Grammar("WDExpress", context=context)
-grammar.add_rule(CommandRule())
-grammar.load()
-
-def unload():
-    global grammar
-    if grammar: grammar.unload()
-    grammar = None
+grammar.add_rule(CommandRule(name="M S V C"))
+if settings.SETTINGS["apps"]["msvc"]:
+    grammar.load()
