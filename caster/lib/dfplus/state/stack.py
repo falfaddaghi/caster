@@ -5,17 +5,19 @@ Created on Jun 7, 2015
 '''
 import Queue
 
-from caster.lib import settings
-from caster.lib.dfplus.state.stackitems import StackItemRegisteredAction, \
-    StackItemSeeker, StackItemAsynchronous, StackItemConfirm
+from caster.lib import settings, utilities
+from caster.lib.dfplus.state.stackitems import StackItemSeeker, \
+    StackItemRegisteredAction, StackItemAsynchronous, StackItemConfirm
 
 
 class CasterState:
-    def __init__(self, nexus):
+    def __init__(self):
         self.stack = ContextStack(self)
         self.blocker = None
         self.waiting = Queue.Queue()
-        self.nexus = nexus
+    def set_stack_history(self, history):
+        '''used for WSR repetition command'''
+        self.stack.set_history(history)
     def add(self, stack_item):
         if self.blocker is None:
             ''' important to block before adding because the add might unblock '''
@@ -47,28 +49,39 @@ class CasterState:
 class ContextStack:
     def __init__(self, state):
         self.list = []
+        self.max_list_size = 30
         self.state = state
+    def set_history(self, history):
+        self._history = history
     
-    def add(self, stack_item):  # stack_item is an instance of stackItem 
+    def add(self, stack_item):
         stack_item.preserve()
         if settings.WSR:
-            self.state.nexus.history.on_recognition(stack_item.get_preserved())            
+            self._history.on_recognition(stack_item.get_preserved())            
         
         ''' case: the new item is has backward seeking --
             -- satisfy levels, then move on to other logic'''
         if stack_item.type == StackItemSeeker.TYPE and stack_item.back is not None:
-                stack_size = len(self.list)
-                seekback_size = len(stack_item.back)
-                for i in range(0, seekback_size):
+            seeker = stack_item
+            stack_size = len(self.list)
+            seekback_size = len(seeker.back)
+            
+            for i in range(0, seekback_size):
+                '''determine whether the seeker should default'''
+                no_default = True
+                if not seeker.reverse:
+                    index = i
+                    no_default = index <= stack_size-1
+                else:
                     index = stack_size - 1 - i
-                    # back looking seekers have nothing else to wait for
-                    if index >= 0 and self.list[index].base != None:
-                        # what's the purpose in blocking seeker chaining?
-                        prev = self.list[index]  # if self.list[index].type not in ["seeker", "continuer"] else None
-                        stack_item.satisfy_level(i, True, prev)
-                        stack_item.eat(i, prev)
-                    else:
-                        stack_item.satisfy_level(i, True, None)
+                    no_default=index >= 0
+                '''satisfy the current level'''
+                prior_stack_item = None
+                if no_default:
+                    prior_stack_item = self.list[-seekback_size:][index]
+                seeker.satisfy_level(index, True, prior_stack_item)
+                seeker.get_parameters(index, prior_stack_item)
+                    
         
         ''' case: there are forward seekers in the stack --
             -- every incomplete seeker has the reach to 
@@ -79,26 +92,28 @@ class ContextStack:
                and if they are complete, execute them in FIFO order'''
         incomplete = self.get_incomplete_seekers()
         number_incomplete = len(incomplete)
+        seeker_executions = []
         if number_incomplete > 0:
             for i in range(0, number_incomplete):
                 seeker = incomplete[i]
                 unsatisfied = seeker.get_index_of_next_unsatisfied_level()
                 seeker.satisfy_level(unsatisfied, False, stack_item)
+                seeker_is_satisfied = seeker.get_index_of_next_unsatisfied_level() == -1
                 
-                # consume stack_item
-                seeker_is_continuer = ContextStack.is_asynchronous(seeker.type)
-                if ((stack_item.type == StackItemRegisteredAction.TYPE and not seeker_is_continuer)  # do not consume seekers, it would disable chaining
-                or (seeker_is_continuer and seeker.get_index_of_next_unsatisfied_level() == -1)):
+                
+                ''' consume stack_item, but do not consume seekers; it would disable chaining'''
+                if (stack_item.type == StackItemRegisteredAction.TYPE  
+                or (ContextStack.is_asynchronous(seeker.type) and seeker_is_satisfied)):
                     if seeker.forward[unsatisfied].result.consume:
                         stack_item.complete = True
                         stack_item.consumed = True
-                        stack_item.clean()
-                    seeker.eat(unsatisfied, stack_item)
                 
-                if seeker.get_index_of_next_unsatisfied_level() == -1:
-                    seeker.execute(False)
+                    seeker.get_parameters(unsatisfied, stack_item)
                 
-        stack_item_is_forward_seeker = stack_item.type == StackItemSeeker.TYPE and stack_item.forward != None
+                if seeker_is_satisfied:
+                    seeker_executions.append(lambda: seeker.execute(False))
+                
+        stack_item_is_forward_seeker = stack_item.type == StackItemSeeker.TYPE and stack_item.forward is not None
         stack_item_is_continuer = ContextStack.is_asynchronous(stack_item.type)
         if not stack_item.consumed and not stack_item_is_forward_seeker and not stack_item_is_continuer:
             stack_item.execute()
@@ -106,9 +121,13 @@ class ContextStack:
         elif stack_item_is_continuer:
             stack_item.begin()
             stack_item.put_time_action()
+        
+        ''' forward seeker executions occur after unconsumed triggers -- moved here for more consistent behavior '''
+        for seeker_execution in seeker_executions:
+            seeker_execution() 
                     
         self.list.append(stack_item)
-        if len(self.list)>100:# make this number configurable
+        if len(self.list)>self.max_list_size:# make this number configurable
             self.list.remove(self.list[0])
     
     def get_incomplete_seekers(self):

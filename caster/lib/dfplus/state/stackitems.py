@@ -40,7 +40,9 @@ class StackItemRegisteredAction(StackItem):
     def clean(self):
         self.dragonfly_data = None
         self.base = None
-    def preserve(self):# save spoken words
+    def preserve(self):
+        '''save the useful parts of the incoming dragonfly data 
+        (in this case, spoken words)'''
         if self.dragonfly_data is not None:
             self.preserved = [x[0] for x  in self.dragonfly_data["_node"].results]
             return True
@@ -51,14 +53,16 @@ class StackItemRegisteredAction(StackItem):
         self.preserve()
         if settings.SETTINGS["miscellaneous"]["status_window_enabled"] and self.show:
             self.nexus.intermediary.text(self.rdescript)
+    
 class StackItemSeeker(StackItemRegisteredAction):
     TYPE = "seeker"
     def __init__(self, seeker, data, type=TYPE):
         StackItemRegisteredAction.__init__(self, seeker, data, type)
-        if self.type==StackItemSeeker.TYPE: self.back = self.copy_direction(seeker.back)
+        if self.type == StackItemSeeker.TYPE: self.back = self.copy_direction(seeker.back)
         self.forward = self.copy_direction(seeker.forward)
-        self.spoken = {}
-        self.eaten_rspec = {}
+        self.reverse = seeker.reverse
+        self.param_spoken = {}
+        self.param_rspec = {}
     
     @staticmethod
     def copy_direction(context_levels):
@@ -82,20 +86,23 @@ class StackItemSeeker(StackItemRegisteredAction):
             level = context_level.index
             fnparams = context_level.result.parameters
             if context_level.result.use_spoken:
-                fnparams = self.spoken[level]
+                fnparams = self.param_spoken[level]
             if context_level.result.use_rspec:
-                fnparams = self.eaten_rspec[level]
+                fnparams = self.param_rspec[level]
             if fnparams is None:
                 return action()
             else:
                 return action(fnparams)
             
             
-    def eat(self, level, stack_item):
-        self.spoken[level] = stack_item.preserved
-        self.eaten_rspec[level] = stack_item.rspec
+    def get_parameters(self, level, stack_item):
+        '''gets information from another stack item
+        for use as parameters in a ContextSet's
+        function object in executeCL()'''
+        self.param_spoken[level] = stack_item.preserved # array of strings
+        self.param_rspec[level] = stack_item.rspec # single string
     def clean(self):
-        # save whatever data you need here
+        '''clean up now-unnecessary references'''
         StackItemRegisteredAction.clean(self)
         if self.back is not None: 
             for context_level in self.back:
@@ -106,9 +113,10 @@ class StackItemSeeker(StackItemRegisteredAction):
     def fillCL(self, context_level, context_set):
         context_level.result = context_set
         context_level.dragonfly_data = self.dragonfly_data
-    def execute(self, unused=None):
+    def execute(self, unused=None): # "unused" is only for Async, but must also be here
         self.complete = True
         c = []
+        if self.reverse: self.back.reverse()
         if self.back is not None: c += self.back
         if self.forward is not None: c += self.forward
         for context_level in c:
@@ -116,7 +124,8 @@ class StackItemSeeker(StackItemRegisteredAction):
         self.clean()
     def satisfy_level(self, level_index, is_back, stack_item):
         direction = self.back if is_back else self.forward
-        context_level = direction[level_index]
+        reverse = -1 if self.reverse else 1
+        context_level = direction[level_index * reverse]
         if not context_level.satisfied:
             if stack_item is not None:
                 for context_set in context_level.sets:
@@ -134,6 +143,7 @@ class StackItemSeeker(StackItemRegisteredAction):
             if not context_level.satisfied:
                 return i
         return -1
+    
 class StackItemAsynchronous(StackItemSeeker):
     TYPE = "continuer"
     def __init__(self, continuer, data, type=TYPE):
@@ -161,15 +171,20 @@ class StackItemAsynchronous(StackItemSeeker):
         Waiting commands should only be run on success.
         '''
         self.complete = True
-        self.nexus.timer.remove_callback(self.closure)
+        
         if self.base is not None:# finisher
             self.base.execute()
-        StackItemSeeker.clean(self)
-        self.closure = None
+        
+        self.clean()
+        
         if success:
             self.nexus.state.run_waiting_commands()
         else:
             self.nexus.state.unblock()
+    def clean(self):
+        StackItemSeeker.clean(self)
+        self.nexus.timer.remove_callback(self.closure)
+        self.closure = None
     def begin(self):
         '''here pass along a closure to the timer multiplexer'''
         execute_context_levels = self.executeCL
